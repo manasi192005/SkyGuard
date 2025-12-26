@@ -1,0 +1,21 @@
+# --- Core AI & Computer Vision ---
+opencv-python
+numpy
+mediapipe
+
+# --- Deep Learning (Stampede Prediction) ---
+torch
+torchvision
+
+# --- Database (SQLite ORM) ---
+sqlalchemy
+
+# --- Backend API (The Bridge) ---
+fastapi
+uvicorn
+python-multipart
+
+# --- Frontend Dashboard (Optional but recommended for web_dashboard.py) ---
+streamlit
+requests
+pandas
