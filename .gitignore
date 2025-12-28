@@ -1,0 +1,23 @@
+# Virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# OS files
+.DS_Store
+
+# Models / large files
+*.pt
+*.h5
+*.onnx
+*.weights
+
+# Videos / data
+*.mp4
+*.avi
+*.mov
+data/
+models/
+
