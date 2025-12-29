@@ -1,0 +1,64 @@
+{
+  "mode": "local",
+  "network": "ganache",
+  "rpc_url": "http://127.0.0.1:7545",
+  "contract_address": null,
+  "admin_private_key": null,
+  "users": {
+    "admin1": {
+      "username": "admin1",
+      "email": "admin@skyguard.com",
+      "role": "ADMIN",
+      "role_id": 1,
+      "eth_address": "0x76f9932F130799873e5b5903812F6BfE8cff84e5",
+      "private_key": "fd693e623f92736e3c107f91dabc78cd41f84286fb22587113879791a0196b41",
+      "added_date": "2025-12-28T18:22:34.552681",
+      "added_by": "ADMIN",
+      "active": true
+    },
+    "police1": {
+      "username": "police1",
+      "email": "police@mumbai.gov.in",
+      "role": "POLICE",
+      "role_id": 2,
+      "eth_address": "0xd459b16b623600c912bFf93b554e8F296E604996",
+      "private_key": "389208ae80639df0d0a6f3f90a1577c9973eb8c93e365b10f3005a9f732afac3",
+      "added_date": "2025-12-28T18:22:34.555074",
+      "added_by": "ADMIN",
+      "active": true
+    },
+    "medical1": {
+      "username": "medical1",
+      "email": "medical@hospital.com",
+      "role": "MEDICAL",
+      "role_id": 3,
+      "eth_address": "0x319A4252B34B4fD332D67526347F2602Dad4233b",
+      "private_key": "2fd89c790336d5e575b4163754d867f5bdd5cbba42d0d0976c7dc4985d1add97",
+      "added_date": "2025-12-28T18:22:34.557145",
+      "added_by": "ADMIN",
+      "active": true
+    },
+    "rushil_patil": {
+      "username": "rushil_patil",
+      "email": "rushilrp21@gmail.com",
+      "role": "POLICE",
+      "role_id": 2,
+      "eth_address": "0x76C0Fa50cdB57Fa536933bBB15511044f733e44e",
+      "private_key": "435de19b0de1bad9c2e9c4ee977400cf13e762c5d55116d83095661d2d4908a4",
+      "added_date": "2025-12-28T18:25:14.155084",
+      "added_by": "ADMIN",
+      "active": true
+    },
+    "manasi_ghalsasi": {
+      "username": "manasi_ghalsasi",
+      "email": "2023.manasi.ghalsasi@gmail.com",
+      "role": "ADMIN",
+      "role_id": 1,
+      "eth_address": "0x92680F362fB64843a5009388136BC2E463EF57E3",
+      "private_key": "94c7eae2d72b3f43ec6d75e394e9f7bf658df95154bc1c88a449e1a141c714ad",
+      "added_date": "2025-12-28T18:26:06.413878",
+      "added_by": "ADMIN",
+      "active": true
+    }
+  }
+}
