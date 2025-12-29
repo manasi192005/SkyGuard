@@ -1,0 +1,26 @@
+[
+  {
+    "name": "manasi ghalsasi",
+    "image_path": "data/suspects/manasi ghalsasi.jpg",
+    "description": "xyz",
+    "uploaded_by": "ruhsi patil",
+    "added_date": "2025-12-28T12:40:21.647719",
+    "status": "active"
+  },
+  {
+    "name": "rushil patil",
+    "image_path": "data/suspects/rushil patil.jpg",
+    "description": "xyz",
+    "uploaded_by": "manasi",
+    "added_date": "2025-12-28T12:54:01.762744",
+    "status": "active"
+  },
+  {
+    "name": "rushil",
+    "image_path": "data/suspects/rushil.jpg",
+    "description": "dkfdk",
+    "uploaded_by": "manasii",
+    "added_date": "2025-12-28T13:30:37.869447",
+    "status": "active"
+  }
+]

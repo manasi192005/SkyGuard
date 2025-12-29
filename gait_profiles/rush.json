@@ -1,0 +1,16 @@
+{
+    "name": "rush",
+    "description": "fhf",
+    "created_date": "2025-12-29T22:15:02.506800",
+    "num_frames": 655,
+    "num_walks": 16,
+    "quality_score": 1.0,
+    "signature": {
+        "stride_length_mean": 0.1278461407144347,
+        "stride_length_std": 0.08982241782928164,
+        "hip_sway_mean": 0.13499589678866944,
+        "hip_sway_std": 0.09956385206110299,
+        "knee_lift_mean": 0.4768569311112848,
+        "knee_lift_std": 0.317523896908088
+    }
+}

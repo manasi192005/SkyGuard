@@ -1,0 +1,14 @@
+[
+  {
+    "name": "xyz",
+    "profile_path": "data/gait_profiles/xyz_gait.pkl",
+    "description": "abc",
+    "added_date": "2025-12-29T14:07:28.396801"
+  },
+  {
+    "name": "rush",
+    "profile_path": "data/gait_profiles/rush_gait.pkl",
+    "description": "dhdsjh",
+    "added_date": "2025-12-29T16:29:46.559079"
+  }
+]

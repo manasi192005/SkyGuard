@@ -1,0 +1,7 @@
+{
+  "admins": [],
+  "email_enabled": false,
+  "sms_enabled": false,
+  "webhook_enabled": false,
+  "alert_cooldown": 60
+}
