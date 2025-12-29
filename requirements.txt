@@ -10,12 +10,15 @@ torchvision
 # --- Database (SQLite ORM) ---
 sqlalchemy
 
-# --- Backend API (The Bridge) ---
+# --- Backend & SMS ---
 fastapi
 uvicorn
 python-multipart
+twilio
 
-# --- Frontend Dashboard (Optional but recommended for web_dashboard.py) ---
+# --- The New Dashboard (UI) ---
 streamlit
-requests
 pandas
+plotly
+Pillow
+watchdog
