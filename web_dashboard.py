@@ -1,577 +1,515 @@
 import streamlit as st
 import cv2
 import numpy as np
-from datetime import datetime
-import pandas as pd
-import plotly.graph_objects as go
 import time
+import tempfile
+import os
+from datetime import datetime
 
-from models.crowd_analysis_enhanced import CrowdAnalyzerEnhanced
+# Import Face Recognition System
 from models.face_recognition_enhanced import FaceRecognitionEnhanced
-from models.stampede_prediction_enhanced import StampedePredictorEnhanced
-from models.emergency_detection_enhanced import EmergencyDetectorEnhanced
-from models.database import (
-    init_database, get_session, 
-    get_recent_analytics, get_recent_suspects, get_active_emergencies
-)
 
 # Page Configuration
 st.set_page_config(
-    page_title="SkyGuard - Drone Surveillance",
+    page_title="SkyGuard - Face Recognition",
     page_icon="🛡️",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
 # Custom CSS
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+    .main .block-container { padding-top: 1rem; }
     
-    * {
-        font-family: 'Inter', sans-serif;
-    }
-    
-    .main-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 2rem;
-        border-radius: 15px;
-        text-align: center;
-        margin-bottom: 2rem;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-    }
-    
-    .main-header h1 {
-        font-size: 3rem;
-        margin: 0;
-        font-weight: 700;
-    }
-    
-    .drone-status {
-        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-        color: white;
-        padding: 1rem;
-        border-radius: 10px;
-        text-align: center;
-        font-weight: 600;
-        margin: 1rem 0;
-    }
-    
-    .alert-critical {
+    .alert-high {
         background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%);
-        color: white;
-        padding: 1rem;
-        border-radius: 10px;
-        margin: 0.5rem 0;
+        color: white; padding: 15px; border-radius: 8px;
+        border-left: 5px solid #990000;
         animation: pulse 2s infinite;
-        box-shadow: 0 4px 15px rgba(255,68,68,0.4);
+        margin-bottom: 10px;
+    }
+    
+    .alert-medium {
+        background: linear-gradient(135deg, #ff8c00 0%, #ff6600 100%);
+        color: white; padding: 15px; border-radius: 8px;
+        border-left: 5px solid #cc5200;
+        margin-bottom: 10px;
+    }
+    
+    .alert-low {
+        background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
+        color: white; padding: 15px; border-radius: 8px;
+        border-left: 5px solid #cc8800;
+        margin-bottom: 10px;
     }
     
     @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.8; }
+        0% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.9; transform: scale(1.02); }
+        100% { opacity: 1; transform: scale(1); }
     }
     
-    .video-container {
-        border: 3px solid #667eea;
-        border-radius: 15px;
-        overflow: hidden;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    .match-percentage {
+        font-size: 24px;
+        font-weight: bold;
+        color: #ff4444;
+    }
+    
+    .stats-box {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 15px;
+        border-radius: 10px;
+        color: white;
+        text-align: center;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
-if 'system_started' not in st.session_state:
+# --- SESSION STATE ---
+if 'system_started' not in st.session_state: 
     st.session_state.system_started = False
-    st.session_state.frame_count = 0
+if 'alerts' not in st.session_state: 
     st.session_state.alerts = []
-    st.session_state.crowd_history = []
-    st.session_state.risk_history = []
-    st.session_state.suspect_count = 0
-    st.session_state.emergency_count = 0
-    st.session_state.drone_connected = False
+if 'last_faces' not in st.session_state: 
+    st.session_state.last_faces = [] 
+if 'total_detections' not in st.session_state: 
+    st.session_state.total_detections = 0
+if 'frame_count' not in st.session_state: 
+    st.session_state.frame_count = 0
+if 'tolerance' not in st.session_state:
+    st.session_state.tolerance = 0.5
+if 'highest_match' not in st.session_state:
+    st.session_state.highest_match = 0
 
-# Drone connection functions
-def connect_to_drone(connection_type, connection_string):
-    """
-    Connect to drone based on type
-    
-    Supported types:
-    - RTSP Stream
-    - UDP Stream
-    - HTTP/MJPEG Stream
-    - DJI Drone
-    - Custom IP Camera
-    """
-    try:
-        if connection_type == "RTSP Stream":
-            # RTSP format: rtsp://username:password@ip:port/stream
-            cap = cv2.VideoCapture(connection_string)
-        
-        elif connection_type == "UDP Stream":
-            # UDP format: udp://ip:port
-            cap = cv2.VideoCapture(connection_string, cv2.CAP_FFMPEG)
-        
-        elif connection_type == "HTTP/MJPEG":
-            # HTTP format: http://ip:port/video
-            cap = cv2.VideoCapture(connection_string)
-        
-        elif connection_type == "DJI Tello":
-            # DJI Tello uses UDP on port 11111
-            cap = cv2.VideoCapture('udp://0.0.0.0:11111', cv2.CAP_FFMPEG)
-        
-        elif connection_type == "IP Camera":
-            # Generic IP camera
-            cap = cv2.VideoCapture(connection_string)
-        
-        else:
-            # Fallback to webcam
-            cap = cv2.VideoCapture(0)
-        
-        # Test if connection works
-        if cap.isOpened():
-            ret, frame = cap.read()
-            if ret:
-                return cap, True, "Connected successfully"
-            else:
-                cap.release()
-                return None, False, "Cannot read frames from stream"
-        else:
-            return None, False, "Cannot open connection"
-    
-    except Exception as e:
-        return None, False, f"Connection error: {str(e)}"
-
-# Initialize system components
+# --- HELPER FUNCTIONS ---
 @st.cache_resource
-def init_skyguard_system():
-    """Initialize all SkyGuard components"""
+def init_system(tolerance):
     try:
-        db_engine = init_database('data/database/skyguard.db')
-        db_session = get_session(db_engine)
-        
-        crowd_analyzer = CrowdAnalyzerEnhanced(use_simple_detection=True)
-        face_recognition = FaceRecognitionEnhanced(confidence_threshold=0.85)
-        stampede_predictor = StampedePredictorEnhanced(sequence_length=30, fps=30)
-        emergency_detector = EmergencyDetectorEnhanced(
-            fall_angle_threshold=60,
-            immobility_seconds=300,
-            fps=30
-        )
-        
-        return {
-            'db_session': db_session,
-            'crowd': crowd_analyzer,
-            'face': face_recognition,
-            'stampede': stampede_predictor,
-            'emergency': emergency_detector,
-            'status': 'operational'
-        }
+        return FaceRecognitionEnhanced(tolerance=tolerance)
     except Exception as e:
-        st.error(f"System initialization error: {e}")
+        st.error(f"❌ Initialization Error: {e}")
         return None
 
-# Header
-st.markdown("""
-<div class="main-header">
-    <h1>🛡️ SkyGuard Drone Surveillance</h1>
-    <p>AI-Powered Aerial Crowd Safety Monitoring</p>
-    <p style="font-size: 0.9rem; margin-top: 0.5rem;">Team GDuo | VESIT, Mumbai</p>
-</div>
-""", unsafe_allow_html=True)
+def get_alert_class(percentage):
+    """Get CSS class based on match percentage"""
+    if percentage >= 80:
+        return "alert-high"
+    elif percentage >= 60:
+        return "alert-medium"
+    else:
+        return "alert-low"
 
-# Sidebar - Control Panel
+# --- SIDEBAR ---
 with st.sidebar:
-    st.markdown("## 🚁 Drone Connection")
-    st.markdown("---")
+    st.header("🎮 Control Panel")
     
-    # Connection type selection
-    connection_type = st.selectbox(
-        "Connection Type",
-        [
-            "Webcam (Testing)",
-            "RTSP Stream",
-            "UDP Stream", 
-            "HTTP/MJPEG",
-            "DJI Tello",
-            "IP Camera",
-            "Custom Stream"
-        ]
+    # System Info
+    st.info("🧠 Using: face_recognition library\n✅ Works with any angle")
+    
+    # Settings
+    with st.expander("⚙️ Detection Settings", expanded=True):
+        tolerance_percent = st.slider(
+            "Match Sensitivity (%)",
+            min_value=30,
+            max_value=70,
+            value=50,
+            step=5,
+            help="Lower = Stricter matching (fewer false positives)"
+        )
+        # Convert percentage to tolerance (inverse relationship)
+        st.session_state.tolerance = 0.7 - (tolerance_percent / 100)
+        
+        st.info(f"Current tolerance: {st.session_state.tolerance:.2f}")
+        
+        process_frames = st.slider(
+            "Process Every N Frames",
+            min_value=1,
+            max_value=10,
+            value=3,
+            help="Lower = More frequent detection (slower)"
+        )
+        st.session_state.process_interval = process_frames
+    
+    # Source Selection
+    st.divider()
+    st.subheader("📹 Video Source")
+    
+    source_type = st.selectbox(
+        "Select Source",
+        ["Webcam", "Upload Video", "Drone Stream"],
+        help="Choose your video input"
     )
     
-    # Connection string input based on type
-    if connection_type == "Webcam (Testing)":
-        camera_index = st.selectbox("Camera", [0, 1, 2], index=0)
-        connection_string = camera_index
-        st.info("Using local webcam for testing")
+    source_config = {}
     
-    elif connection_type == "RTSP Stream":
-        st.markdown("**Format:** `rtsp://ip:port/stream`")
-        connection_string = st.text_input(
-            "RTSP URL",
-            value="rtsp://192.168.1.100:554/stream",
-            placeholder="rtsp://192.168.1.100:554/stream"
+    if source_type == "Webcam":
+        source_config['index'] = st.selectbox("Camera", [0, 1, 2], index=0)
+        
+    elif source_type == "Upload Video":
+        uploaded_file = st.file_uploader(
+            "Upload Video File", 
+            type=['mp4', 'avi', 'mov', 'mkv']
         )
-        st.caption("Example: rtsp://admin:password@192.168.1.100:554/live")
-    
-    elif connection_type == "UDP Stream":
-        st.markdown("**Format:** `udp://ip:port`")
-        connection_string = st.text_input(
-            "UDP URL",
-            value="udp://0.0.0.0:5000",
-            placeholder="udp://0.0.0.0:5000"
+        if uploaded_file:
+            tfile = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+            tfile.write(uploaded_file.read())
+            tfile.close()
+            source_config['path'] = tfile.name
+            st.success("✅ Video Loaded")
+        else:
+            st.warning("Please upload a video file")
+            
+    elif source_type == "Drone Stream":
+        source_config['url'] = st.text_input(
+            "Stream URL", 
+            "udp://0.0.0.0:11111",
+            help="Enter RTSP or UDP stream URL"
         )
+
+    # Add Suspect
+    st.divider()
+    st.subheader("👤 Suspect Database")
     
-    elif connection_type == "HTTP/MJPEG":
-        st.markdown("**Format:** `http://ip:port/video`")
-        connection_string = st.text_input(
-            "HTTP URL",
-            value="http://192.168.1.100:8080/video",
-            placeholder="http://192.168.1.100:8080/video"
-        )
-    
-    elif connection_type == "DJI Tello":
-        st.info("DJI Tello uses UDP on port 11111")
-        connection_string = "udp://0.0.0.0:11111"
-        st.caption("Make sure Tello is connected to WiFi")
-    
-    elif connection_type == "IP Camera":
-        st.markdown("**IP Camera Stream URL**")
-        connection_string = st.text_input(
-            "Camera URL",
-            value="http://192.168.1.100/video.cgi",
-            placeholder="http://192.168.1.100/video.cgi"
-        )
-    
-    else:  # Custom Stream
-        connection_string = st.text_input(
-            "Custom Stream URL",
-            placeholder="Enter full stream URL"
-        )
-    
-    # Test connection button
-    if st.button("🔌 Test Connection", use_container_width=True):
-        with st.spinner("Testing connection..."):
-            cap, success, message = connect_to_drone(connection_type, connection_string)
-            if success:
-                st.success(f"✅ {message}")
-                st.session_state.drone_connected = True
-                cap.release()
+    with st.expander("Add New Suspect", expanded=True):
+        st.markdown("**📸 Upload Clear Photo**")
+        st.caption("Tips: Front-facing, good lighting, single person")
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            up_photo = st.file_uploader(
+                "Face Photo", 
+                type=['jpg', 'png', 'jpeg'],
+                label_visibility="collapsed"
+            )
+        
+        with col2:
+            up_name = st.text_input(
+                "Name",
+                placeholder="John Doe",
+                label_visibility="collapsed"
+            )
+        
+        if st.button("➕ Add Suspect", type="primary", use_container_width=True):
+            if up_photo and up_name:
+                with st.spinner("🔄 Processing..."):
+                    tfile = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+                    tfile.write(up_photo.read())
+                    tfile.close()
+                    
+                    sys = init_system(st.session_state.tolerance)
+                    
+                    if sys:
+                        success = sys.add_suspect(up_name, tfile.name)
+                        if success:
+                            st.success(f"✅ {up_name} added!")
+                            st.cache_resource.clear()
+                        else:
+                            st.error("❌ No face detected in photo")
+                    
+                    os.remove(tfile.name)
             else:
-                st.error(f"❌ {message}")
-                st.session_state.drone_connected = False
-    
-    st.markdown("---")
-    
-    # Drone status
-    if st.session_state.drone_connected:
-        st.markdown('<div class="drone-status">🟢 DRONE CONNECTED</div>', unsafe_allow_html=True)
-    else:
-        st.warning("🔴 Drone Not Connected")
-    
-    st.markdown("---")
-    
-    # Feature toggles
-    st.markdown("### 🎛️ Feature Controls")
+                st.error("⚠️ Please provide both photo and name")
+
+    # Control Buttons
+    st.divider()
     
     col1, col2 = st.columns(2)
-    with col1:
-        enable_heatmap = st.checkbox("🗺️ Heat Map", value=True, key="heat")
-        enable_stampede = st.checkbox("⏰ Stampede", value=True, key="stamp")
-    with col2:
-        enable_face = st.checkbox("👤 Face ID", value=True, key="face")
-        enable_emergency = st.checkbox("🚑 Emergency", value=True, key="emerg")
     
-    st.markdown("---")
-    
-    # System controls
-    st.markdown("### 🎮 System Controls")
-    
-    col1, col2 = st.columns(2)
     with col1:
         if st.button("🚀 START", type="primary", use_container_width=True):
-            st.session_state.system_started = True
-            st.session_state.frame_count = 0
-            st.session_state.alerts = []
-            st.rerun()
+            if source_type == "Upload Video" and 'path' not in source_config:
+                st.error("Please upload video first")
+            else:
+                st.session_state.system_started = True
+                st.session_state.video_config = source_config
+                st.session_state.source_type = source_type
+                st.session_state.alerts = []
+                st.session_state.total_detections = 0
+                st.session_state.highest_match = 0
+                st.rerun()
     
     with col2:
         if st.button("⏹️ STOP", use_container_width=True):
             st.session_state.system_started = False
             st.rerun()
-    
-    st.markdown("---")
-    
-    # GPS Coordinates (for drone)
-    st.markdown("### 📍 GPS Location")
-    gps_lat = st.number_input("Latitude", value=19.0760, format="%.4f")
-    gps_lon = st.number_input("Longitude", value=72.8777, format="%.4f")
-    
-    st.markdown("---")
-    
-    # System status
-    st.markdown("### 📊 System Status")
-    if st.session_state.system_started:
-        st.success("🟢 MONITORING ACTIVE")
-        st.metric("Frames Processed", st.session_state.frame_count)
-    else:
-        st.error("🔴 SYSTEM INACTIVE")
 
-# Main content area
-if not st.session_state.system_started:
-    # Setup instructions
-    st.markdown("## 🚁 Drone Setup Instructions")
-    
-    tab1, tab2, tab3, tab4 = st.tabs(["📱 DJI Tello", "📡 RTSP Stream", "🌐 IP Camera", "🎥 Custom"])
-    
-    with tab1:
-        st.markdown("""
-        ### DJI Tello Drone Setup
-        
-        1. **Turn on Tello drone**
-        2. **Connect to Tello WiFi** (TELLO-XXXXX)
-        3. **Select "DJI Tello"** in connection type
-        4. **Click "Test Connection"**
-        5. **Click "START"** to begin monitoring
-        
-        **Port:** UDP 11111  
-        **Resolution:** 720p @ 30fps
-        """)
-    
-    with tab2:
-        st.markdown("""
-        ### RTSP Stream Setup
-        
-        **Format:** `rtsp://[username:password@]ip:port/stream`
-        
-        **Examples:**
-        - `rtsp://192.168.1.100:554/stream`
-        - `rtsp://admin:12345@192.168.1.100:554/live`
-        - `rtsp://camera.local:8554/video`
-        
-        **Common Ports:**
-        - 554 (Default RTSP)
-        - 8554 (Alternative)
-        """)
-    
-    with tab3:
-        st.markdown("""
-        ### IP Camera Setup
-        
-        **Format:** `http://ip:port/video` or `http://ip/video.cgi`
-        
-        **Examples:**
-        - `http://192.168.1.100:8080/video`
-        - `http://192.168.1.100/video.cgi`
-        - `http://admin:pass@192.168.1.100/stream`
-        
-        **Common Ports:**
-        - 80 (HTTP)
-        - 8080 (Alternative HTTP)
-        """)
-    
-    with tab4:
-        st.markdown("""
-        ### Custom Stream Setup
-        
-        **Supported Protocols:**
-        - RTSP: `rtsp://...`
-        - HTTP: `http://...`
-        - UDP: `udp://...`
-        - RTMP: `rtmp://...`
-        
-        **Tips:**
-        - Make sure drone/camera is on same network
-        - Check firewall settings
-        - Test with VLC player first
-        """)
-    
-    st.info("👆 **Configure drone connection in sidebar, then click START**")
+# --- MAIN DASHBOARD ---
+st.title("🛡️ SkyGuard Face Recognition System")
 
-else:
-    # System is running
-    system = init_skyguard_system()
+if st.session_state.system_started:
     
-    if not system:
-        st.error("Failed to initialize system")
+    # Initialize System
+    with st.spinner("🔄 Loading AI System..."):
+        face_system = init_system(st.session_state.tolerance)
+    
+    if not face_system:
+        st.error("❌ Failed to initialize system")
+        st.info("Make sure you've installed: pip install face-recognition")
         st.stop()
     
-    # Top metrics row
-    col1, col2, col3, col4, col5 = st.columns(5)
+    # Check if suspects exist
+    if len(face_system.suspect_names) == 0:
+        st.warning("⚠️ No suspects in database! Add suspects in the sidebar first.")
+        st.stop()
+    
+    # Metrics Row
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("🎬 Frame", st.session_state.frame_count)
-    
+        st.markdown('<div class="stats-box">🟢 ACTIVE<br><small>System Online</small></div>', 
+                    unsafe_allow_html=True)
     with col2:
-        crowd_count = st.session_state.crowd_history[-1] if st.session_state.crowd_history else 0
-        st.metric("👥 People", crowd_count)
-    
+        st.markdown(f'<div class="stats-box">{st.session_state.total_detections}<br><small>Total Detections</small></div>', 
+                    unsafe_allow_html=True)
     with col3:
-        st.metric("🎯 Suspects", st.session_state.suspect_count)
-    
+        st.markdown(f'<div class="stats-box">{len(st.session_state.alerts)}<br><small>Alerts Triggered</small></div>', 
+                    unsafe_allow_html=True)
     with col4:
-        stampede_count = len([a for a in st.session_state.alerts if 'STAMPEDE' in a.get('type', '')])
-        st.metric("⚠️ Warnings", stampede_count)
+        st.markdown(f'<div class="stats-box">{st.session_state.highest_match:.1f}%<br><small>Highest Match</small></div>', 
+                    unsafe_allow_html=True)
     
-    with col5:
-        st.metric("🚑 Emergencies", st.session_state.emergency_count)
+    st.divider()
     
-    st.markdown("---")
-    
-    # Main content: Video feed and alerts
-    col_video, col_alerts = st.columns([2.5, 1])
+    # Main Layout
+    col_video, col_alerts = st.columns([2, 1])
     
     with col_video:
-        st.markdown("### 🚁 Live Drone Feed")
+        st.subheader("📹 Live Video Feed")
         video_placeholder = st.empty()
         status_placeholder = st.empty()
     
     with col_alerts:
-        st.markdown("### 🚨 Active Alerts")
+        st.subheader("🚨 Detection Log")
         alerts_placeholder = st.empty()
+
+    # Video Capture
+    cap = None
     
-    # Connect to drone and process video
-    cap, connected, msg = connect_to_drone(connection_type, connection_string)
+    try:
+        if st.session_state.source_type == "Webcam":
+            cap = cv2.VideoCapture(st.session_state.video_config['index'])
+            
+        elif st.session_state.source_type == "Upload Video":
+            cap = cv2.VideoCapture(st.session_state.video_config['path'])
+            
+        elif st.session_state.source_type == "Drone Stream":
+            cap = cv2.VideoCapture(st.session_state.video_config['url'])
+            
+    except Exception as e:
+        st.error(f"❌ Cannot open video source: {e}")
+        st.stop()
+
+    if not cap or not cap.isOpened():
+        st.error("❌ Failed to open video source")
+        st.stop()
     
-    if cap and connected:
+    # Set resolution
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    
+    frame_counter = 0
+    
+    # Main Processing Loop
+    while st.session_state.system_started:
         ret, frame = cap.read()
         
-        if ret:
-            st.session_state.frame_count += 1
-            output = frame.copy()
-            current_alerts = []
-            
-            # Process through all features (same as before)
-            crowd_count = 0
-            risk_level = 'low'
-            zones = []
-            
-            if enable_heatmap:
-                try:
-                    output, crowd_count, risk_level, heatmap, zones = \
-                        system['crowd'].analyze_crowd(output, draw_visualization=True)
-                    
-                    st.session_state.crowd_history.append(crowd_count)
-                    st.session_state.risk_history.append(risk_level)
-                    
-                    if len(st.session_state.crowd_history) > 100:
-                        st.session_state.crowd_history.pop(0)
-                        st.session_state.risk_history.pop(0)
-                    
-                    if zones:
-                        current_alerts.append({
-                            'type': 'STAMPEDE_ZONE',
-                            'severity': 'critical',
-                            'message': f'🔴 {len(zones)} stampede-prone zone(s) detected!',
-                            'time': datetime.now()
-                        })
-                except Exception as e:
-                    pass
-            
-            if enable_face:
-                try:
-                    output, detections, suspects = \
-                        system['face'].process_frame(output, draw_boxes=True)
-                    
-                    for suspect in suspects:
-                        st.session_state.suspect_count += 1
-                        current_alerts.append({
-                            'type': 'SUSPECT',
-                            'severity': 'critical',
-                            'message': f'👤 SUSPECT: {suspect["name"]}',
-                            'time': datetime.now()
-                        })
-                except Exception as e:
-                    pass
-            
-            if enable_stampede and crowd_count > 0:
-                try:
-                    warning = system['stampede'].generate_early_warning(crowd_count, zones)
-                    
-                    if warning and warning['risk_level'] in ['high', 'critical']:
-                        current_alerts.append({
-                            'type': 'STAMPEDE_WARNING',
-                            'severity': warning['risk_level'],
-                            'message': f'⚠️ Stampede in 90s! ({warning["predicted_density"]} people)',
-                            'time': datetime.now()
-                        })
-                except Exception as e:
-                    pass
-            
-            if enable_emergency:
-                try:
-                    output, emergency_detected, emergency_info = \
-                        system['emergency'].detect_emergency(output, st.session_state.frame_count, draw_visualization=True)
-                    
-                    if emergency_detected:
-                        st.session_state.emergency_count += 1
-                        current_alerts.append({
-                            'type': 'EMERGENCY',
-                            'severity': 'critical',
-                            'message': f'🚑 MEDICAL EMERGENCY!',
-                            'time': datetime.now()
-                        })
-                except Exception as e:
-                    pass
-            
-            # Add GPS coordinates to frame
-            cv2.putText(output, f"GPS: {gps_lat:.4f}, {gps_lon:.4f}", 
-                       (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-            
-            st.session_state.alerts.extend(current_alerts)
-            if len(st.session_state.alerts) > 50:
-                st.session_state.alerts = st.session_state.alerts[-50:]
-            
-            # Display video
-            output_rgb = cv2.cvtColor(output, cv2.COLOR_BGR2RGB)
-            video_placeholder.image(output_rgb, channels="RGB", use_container_width=True)
-            
-            # Display alerts
-            with alerts_placeholder.container():
-                if current_alerts or st.session_state.alerts:
-                    recent_alerts = st.session_state.alerts[-10:]
-                    for alert in reversed(recent_alerts):
-                        severity_class = f"alert-{alert['severity']}"
-                        st.markdown(
-                            f'<div class="{severity_class}">'
-                            f'{alert["message"]}<br>'
-                            f'<small>{alert["time"].strftime("%H:%M:%S")}</small>'
-                            f'</div>',
-                            unsafe_allow_html=True
-                        )
-                else:
-                    st.success("✅ No alerts")
-            
-            status_placeholder.success(f"🚁 DRONE ACTIVE | Frame {st.session_state.frame_count} | "
-                                     f"👥 {crowd_count} people | ⚠️ {risk_level.upper()}")
+        if not ret:
+            if st.session_state.source_type == "Upload Video":
+                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop video
+                continue
+            else:
+                st.error("❌ Lost video connection")
+                break
         
-        cap.release()
-    else:
-        st.error(f"❌ {msg}")
-        st.info("Check connection settings in sidebar")
-    
-    # Charts
-    if st.session_state.crowd_history:
-        st.markdown("---")
-        st.markdown("## 📈 Real-Time Analytics")
+        frame_counter += 1
         
-        fig_crowd = go.Figure()
-        fig_crowd.add_trace(go.Scatter(
-            y=st.session_state.crowd_history,
-            mode='lines+markers',
-            name='Crowd Density',
-            line=dict(color='#667eea', width=3)
-        ))
-        fig_crowd.update_layout(
-            title="Crowd Density from Drone Feed",
-            xaxis_title="Frame",
-            yaxis_title="People Count",
-            height=300
-        )
-        st.plotly_chart(fig_crowd, use_container_width=True)
+        # Resize for faster processing and display
+        display_frame = cv2.resize(frame, (960, 540))
+        output = display_frame.copy()
+        
+        # Draw existing detections (from previous processing)
+        for face_data in st.session_state.last_faces:
+            x, y, w, h = face_data['box']
+            name = face_data['name']
+            match_pct = face_data['match_percentage']
+            
+            # Draw rectangle
+            cv2.rectangle(output, (x, y), (x+w, y+h), (0, 0, 255), 3)
+            
+            # Draw label with percentage
+            label = f"{name}: {match_pct:.1f}%"
+            
+            (label_w, label_h), _ = cv2.getTextSize(
+                label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2
+            )
+            
+            # Background for label
+            cv2.rectangle(
+                output, (x, y-label_h-15), (x+label_w+10, y), 
+                (0, 0, 255), -1
+            )
+            
+            # Text
+            cv2.putText(
+                output, label, (x+5, y-8),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2
+            )
+        
+        # Display frame
+        out_rgb = cv2.cvtColor(output, cv2.COLOR_BGR2RGB)
+        video_placeholder.image(out_rgb, channels="RGB", use_container_width=True)
+        
+        # Process frame (every N frames)
+        process_interval = st.session_state.get('process_interval', 3)
+        
+        if frame_counter % process_interval == 0:
+            try:
+                status_placeholder.info("🔍 Analyzing faces...")
+                
+                # --- SIMULATE DRONE GPS (Replace this with real drone SDK later) ---
+                # Example: Coordinates for Jaipur, India
+                drone_lat = 26.9124 + (np.random.random() * 0.001) 
+                drone_long = 75.7873 + (np.random.random() * 0.001)
+                
+                # Run face recognition WITH COORDINATES
+                _, detections, suspects = face_system.process_frame(
+                    display_frame,
+                    latitude=drone_lat,   # <--- Pass Lat
+                    longitude=drone_long, # <--- Pass Long
+                    draw_boxes=False
+                )
+                
+                # Update tracking
+                current_faces = []
+                
+                for suspect in suspects:
+                    # Get box coordinates
+                    if 'box' in suspect:
+                        x, y, w, h = suspect['box']
+                    else:
+                        continue
+                    
+                    name = suspect['name']
+                    match_pct = suspect['match_percentage']
+                    
+                    # Update highest match
+                    if match_pct > st.session_state.highest_match:
+                        st.session_state.highest_match = match_pct
+                    
+                    # Store face data
+                    face_data = {
+                        'box': [x, y, w, h],
+                        'name': name,
+                        'match_percentage': match_pct
+                    }
+                    current_faces.append(face_data)
+                    
+                    # Add to alerts
+                    st.session_state.total_detections += 1
+                    
+                    alert_entry = {
+                        "name": name,
+                        "match_percentage": match_pct,
+                        "time": datetime.now().strftime("%H:%M:%S"),
+                        "frame": frame_counter
+                    }
+                    
+                    st.session_state.alerts.insert(0, alert_entry)
+                
+                st.session_state.last_faces = current_faces
+                
+                # Status update
+                status_placeholder.success(
+                    f"✅ Frame {frame_counter} | "
+                    f"Faces: {len(detections)} | "
+                    f"Matched: {len(suspects)}"
+                )
+                
+            except Exception as e:
+                status_placeholder.error(f"❌ Error: {str(e)}")
+                print(f"Processing error: {e}")
+        
+        # Update alerts display
+        with alerts_placeholder.container():
+            if st.session_state.alerts:
+                st.markdown("### Recent Detections")
+                
+                # Show last 8 alerts
+                for alert in st.session_state.alerts[:8]:
+                    alert_class = get_alert_class(alert['match_percentage'])
+                    
+                    st.markdown(
+                        f'<div class="{alert_class}">'
+                        f'<strong>🎯 {alert["name"]}</strong><br>'
+                        f'<span class="match-percentage">{alert["match_percentage"]:.1f}%</span> Match<br>'
+                        f'<small>Time: {alert["time"]} | Frame: {alert["frame"]}</small>'
+                        f'</div>',
+                        unsafe_allow_html=True
+                    )
+            else:
+                st.info("👀 Waiting for detections...")
+        
+        # Control frame rate
+        time.sleep(0.08)  # ~12 FPS
     
-    # Auto-refresh
-    time.sleep(0.033)
-    st.rerun()
+    cap.release()
+    
+else:
+    # Welcome Screen
+    st.markdown("""
+    ## 🎯 Professional Face Recognition System
+    
+    ### ✨ Features:
+    - ✅ **High Accuracy** - State-of-the-art face matching
+    - ✅ **Any Angle** - Works with side views, tilted faces
+    - ✅ **Drone Ready** - Optimized for aerial footage
+    - ✅ **Real-time** - Fast processing for live video
+    - ✅ **Match Percentage** - Shows exact confidence score
+    
+    ### 🚀 Quick Start Guide:
+    
+    1. **Add Suspects** 👤
+       - Upload clear face photos in the sidebar
+       - System will analyze and store face patterns
+       
+    2. **Configure Settings** ⚙️
+       - Adjust match sensitivity (50% recommended)
+       - Set processing frequency
+       
+    3. **Select Video Source** 📹
+       - Webcam for live testing
+       - Upload video for analysis
+       - Drone stream for real surveillance
+       
+    4. **Start Detection** 🚀
+       - Click START button
+       - System will detect and match faces
+       - View match percentages in real-time
+    
+    ### 📊 Understanding Match Scores:
+    - **80-100%** = High confidence match (RED alert)
+    - **60-80%** = Medium confidence match (ORANGE alert)
+    - **50-60%** = Low confidence match (YELLOW alert)
+    
+    ### 💡 Installation Required:
+    ```bash
+    pip install face-recognition
+    pip install opencv-python
+    pip install ultralytics
+    ```
+    
+    ---
+    
+    👈 **Start by adding suspects in the sidebar!**
+    """)
+    
+    # System status
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.info("🔧 System Ready")
+    with col2:
+        st.info("👤 Add Suspects First")
+    with col3:
+        st.info("📹 Select Video Source")

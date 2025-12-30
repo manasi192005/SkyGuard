@@ -1,0 +1,8 @@
+names:
+  0: pistol
+  1: knife
+  2: rifle
+nc: 3
+path: /Users/manasighalsasi/Documents/skyguard/thermal_weapon_detection
+train: dataset/images/train
+val: dataset/images/val
